@@ -1,336 +1,509 @@
-import React, { useState } from 'react';
-import { DealerPerformance } from '../types';
-import { 
-  Star, 
-  Clock, 
-  TrendingUp, 
-  Phone, 
-  Mail, 
-  MapPin, 
-  Award,
-  AlertTriangle,
-  CheckCircle,
-  Eye
-} from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Star, Filter, TrendingUp, Users, Building, ChevronDown, ChevronRight, Search, Crown } from 'lucide-react';
+import { DealerPerformance, ScoringCriteria, ScoringWeights, StarRating } from '../types';
+import { calculatePerformanceScore, calculateStarRating, getStarRatingLabel, buildDealerHierarchy, filterDealersByStars, sortDealers } from '../utils/scoringSystem';
+import DealerDetailModal from './DealerDetailModal';
 
 interface DealerTrackingProps {
   dealers: DealerPerformance[];
+  criteria: ScoringCriteria;
+  weights: ScoringWeights;
+  starSystem: StarRating[];
   onSelectDealer: (dealer: DealerPerformance) => void;
 }
 
-const DealerTracking: React.FC<DealerTrackingProps> = ({ dealers, onSelectDealer }) => {
-  const [sortBy, setSortBy] = useState<'score' | 'revenue' | 'deliveryTime'>('score');
-  const [filterType, setFilterType] = useState<'all' | 'dealer' | 'main-dealer'>('all');
-  const [query, setQuery] = useState('');
+const DealerTracking: React.FC<DealerTrackingProps> = ({
+  dealers,
+  criteria,
+  weights,
+  starSystem,
+  onSelectDealer
+}) => {
+  const [selectedStarFilter, setSelectedStarFilter] = useState<number | null>(null);
+  const [mainDealerSortBy, setMainDealerSortBy] = useState<'score' | 'revenue' | 'orders' | 'satisfaction'>('score');
+  const [subDealerSortBy, setSubDealerSortBy] = useState<'score' | 'revenue' | 'orders' | 'satisfaction'>('score');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [expandedDealers, setExpandedDealers] = useState<Set<string>>(new Set());
+  const [selectedDealer, setSelectedDealer] = useState<DealerPerformance | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<'hierarchy' | 'main-dealers' | 'sub-dealers'>('hierarchy');
 
-  const getPerformanceColor = (score: number) => {
-    if (score >= 90) return 'text-green-600 bg-green-50 border-green-200';
-    if (score >= 80) return 'text-yellow-600 bg-yellow-50 border-yellow-200';
-    return 'text-red-600 bg-red-50 border-red-200';
-  };
+  // Calculate scores and build hierarchy
+  const processedDealers = useMemo(() => {
+    const withScores = dealers.map(dealer => {
+      const { totalScore, breakdown } = calculatePerformanceScore(dealer, criteria, weights);
+      const starRating = calculateStarRating(totalScore, starSystem);
+      
+      return {
+        ...dealer,
+        performanceScore: totalScore,
+        starRating,
+        ...breakdown
+      };
+    });
 
-  const getPerformanceIcon = (score: number) => {
-    if (score >= 90) return <Award className="h-4 w-4" />;
-    if (score >= 80) return <CheckCircle className="h-4 w-4" />;
-    return <AlertTriangle className="h-4 w-4" />;
-  };
-
-  const sortedDealers = [...dealers]
-    .filter(dealer => filterType === 'all' || dealer.type === filterType)
-    .filter(dealer => {
-      if (!query) return true;
-      const q = query.toLowerCase();
-      return (
-        dealer.name.toLowerCase().includes(q) ||
-        dealer.city.toLowerCase().includes(q) ||
-        dealer.region.toLowerCase().includes(q)
-      );
-    })
-    .sort((a, b) => {
-      switch (sortBy) {
-        case 'score':
-          return b.performanceScore - a.performanceScore;
-        case 'revenue':
-          return b.monthlyRevenue - a.monthlyRevenue;
-        case 'deliveryTime':
-          return a.averageDeliveryTime - b.averageDeliveryTime;
-        default:
-          return 0;
+    // Build hierarchy
+    const hierarchy = buildDealerHierarchy(withScores);
+    
+    // Calculate main dealer scores based on sub-dealers
+    hierarchy.forEach(mainDealer => {
+      if (mainDealer.subDealers && mainDealer.subDealers.length > 0) {
+        const avgScore = mainDealer.subDealers.reduce((sum, sub) => sum + sub.performanceScore, 0) / mainDealer.subDealers.length;
+        mainDealer.performanceScore = Math.round(avgScore);
+        mainDealer.starRating = calculateStarRating(mainDealer.performanceScore, starSystem);
       }
     });
 
+    return hierarchy;
+  }, [dealers, criteria, weights, starSystem]);
+
+  // Separate main dealers and sub-dealers
+  const mainDealers = useMemo(() => {
+    let filtered = processedDealers;
+    
+    if (selectedStarFilter !== null) {
+      filtered = filtered.filter(dealer => dealer.starRating === selectedStarFilter);
+    }
+    
+    if (searchTerm) {
+      filtered = filtered.filter(dealer => 
+        dealer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        dealer.city.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        dealer.region.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    
+    return sortDealers(filtered, mainDealerSortBy);
+  }, [processedDealers, selectedStarFilter, searchTerm, mainDealerSortBy]);
+
+  const allSubDealers = useMemo(() => {
+    const subDealers = dealers.filter(d => d.type === 'dealer');
+    const withScores = subDealers.map(dealer => {
+      const { totalScore, breakdown } = calculatePerformanceScore(dealer, criteria, weights);
+      const starRating = calculateStarRating(totalScore, starSystem);
+      
+      return {
+        ...dealer,
+        performanceScore: totalScore,
+        starRating,
+        ...breakdown
+      };
+    });
+
+    let filtered = withScores;
+    
+    if (selectedStarFilter !== null) {
+      filtered = filtered.filter(dealer => dealer.starRating === selectedStarFilter);
+    }
+    
+    if (searchTerm) {
+      filtered = filtered.filter(dealer => 
+        dealer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        dealer.city.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        dealer.region.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    
+    return sortDealers(filtered, subDealerSortBy);
+  }, [dealers, criteria, weights, starSystem, selectedStarFilter, searchTerm, subDealerSortBy]);
+
+  const toggleExpanded = (dealerId: string) => {
+    const newExpanded = new Set(expandedDealers);
+    if (newExpanded.has(dealerId)) {
+      newExpanded.delete(dealerId);
+    } else {
+      newExpanded.add(dealerId);
+    }
+    setExpandedDealers(newExpanded);
+  };
+
+  const handleDealerClick = (dealer: DealerPerformance) => {
+    setSelectedDealer(dealer);
+    setIsModalOpen(true);
+  };
+
+  const renderStars = (rating: number) => {
+    return Array.from({ length: 5 }, (_, i) => (
+      <Star
+        key={i}
+        className={`h-4 w-4 ${
+          i < rating ? 'text-yellow-400 fill-current' : 'text-gray-300'
+        }`}
+      />
+    ));
+  };
+
+  const renderMainDealerCard = (dealer: DealerPerformance) => (
+    <div
+      key={dealer.id}
+      className="bg-gradient-to-br from-blue-50 via-blue-100 to-indigo-100 rounded-xl border-2 border-blue-200 shadow-md hover:shadow-xl transition-all duration-300 cursor-pointer transform hover:scale-[1.02]"
+      onClick={() => handleDealerClick(dealer)}
+    >
+      <div className="p-6 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-200/30 to-indigo-200/30 rounded-full -translate-y-16 translate-x-16"></div>
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center space-x-3">
+            <div className="bg-gradient-to-br from-blue-600 to-blue-700 text-white p-3 rounded-xl shadow-lg">
+              <Crown className="h-6 w-6" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-blue-900">{dealer.name}</h3>
+              <p className="text-blue-700 font-medium">{dealer.city}, {dealer.region}</p>
+              <p className="text-sm text-blue-600">Ana Bayi</p>
+            </div>
+          </div>
+          
+          {dealer.subDealers && dealer.subDealers.length > 0 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleExpanded(dealer.id);
+              }}
+              className="p-2 hover:bg-blue-200 rounded-full transition-colors"
+            >
+              {expandedDealers.has(dealer.id) ? (
+                <ChevronDown className="h-6 w-6 text-blue-600" />
+              ) : (
+                <ChevronRight className="h-6 w-6 text-blue-600" />
+              )}
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4 relative z-10">
+          <div className="text-center bg-white/60 backdrop-blur-sm rounded-lg p-3 border border-blue-200/50">
+            <p className="text-xs text-blue-600 font-medium mb-1">Performans Puanı</p>
+            <p className="text-2xl font-bold text-blue-900">{dealer.performanceScore.toFixed(1)}</p>
+          </div>
+          <div className="text-center bg-white/60 backdrop-blur-sm rounded-lg p-3 border border-blue-200/50">
+            <p className="text-xs text-blue-600 font-medium mb-1">Yıldız</p>
+            <div className="flex items-center justify-center space-x-1 mb-1">
+              {renderStars(dealer.starRating)}
+            </div>
+            <p className="text-xs text-blue-700">
+              {getStarRatingLabel(dealer.performanceScore, starSystem)}
+            </p>
+          </div>
+          <div className="text-center bg-white/60 backdrop-blur-sm rounded-lg p-3 border border-blue-200/50">
+            <p className="text-xs text-blue-600 font-medium mb-1">Toplam Sipariş</p>
+            <p className="text-lg font-bold text-blue-900">{dealer.totalOrders}</p>
+          </div>
+          <div className="text-center bg-white/60 backdrop-blur-sm rounded-lg p-3 border border-blue-200/50">
+            <p className="text-xs text-blue-600 font-medium mb-1">Aylık Gelir</p>
+            <p className="text-lg font-bold text-blue-900">
+              {(dealer.monthlyRevenue / 1000000).toFixed(1)}M ₺
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 mb-4 relative z-10">
+          <div className="text-center bg-white/60 backdrop-blur-sm rounded-lg p-3 border border-blue-200/50">
+            <p className="text-xs text-blue-600 font-medium mb-1">Teslimat Süresi</p>
+            <p className="text-sm font-medium text-blue-900">{dealer.averageDeliveryTime.toFixed(1)} gün</p>
+          </div>
+          <div className="text-center bg-white/60 backdrop-blur-sm rounded-lg p-3 border border-blue-200/50">
+            <p className="text-xs text-blue-600 font-medium mb-1">Memnuniyet</p>
+            <p className="text-sm font-medium text-blue-900">{dealer.customerSatisfaction.toFixed(1)}/5</p>
+          </div>
+        </div>
+
+        {dealer.subDealers && dealer.subDealers.length > 0 && (
+          <div className="text-center">
+            <p className="text-sm text-blue-600 font-medium">
+              Bayi Sayısı: {dealer.subDealers.length}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderSubDealerCard = (dealer: DealerPerformance) => (
+    <div
+      key={dealer.id}
+      className="bg-gradient-to-br from-white to-gray-50 rounded-xl border border-gray-200 shadow-sm hover:shadow-lg transition-all duration-300 cursor-pointer transform hover:scale-[1.02]"
+      onClick={() => handleDealerClick(dealer)}
+    >
+      <div className="p-4">
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center space-x-2">
+            <div className="bg-gray-600 text-white p-1.5 rounded-full">
+              <Building className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900">{dealer.name}</h3>
+              <p className="text-sm text-gray-600">{dealer.city}, {dealer.region}</p>
+              <p className="text-xs text-gray-500">Bayi</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 mb-3">
+          <div>
+            <p className="text-xs text-gray-500">Performans Puanı</p>
+            <p className="text-lg font-bold text-gray-900">{dealer.performanceScore}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">Yıldız</p>
+            <div className="flex items-center space-x-1">
+              {renderStars(dealer.starRating)}
+              <span className="text-sm text-gray-600 ml-1">
+                ({getStarRatingLabel(dealer.performanceScore, starSystem)})
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 mb-3">
+          <div>
+            <p className="text-xs text-gray-500">Toplam Sipariş</p>
+            <p className="text-sm font-medium text-gray-900">{dealer.totalOrders}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">Aylık Gelir</p>
+            <p className="text-sm font-medium text-gray-900">
+              {(dealer.monthlyRevenue / 1000).toFixed(1)}K ₺
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs text-gray-500">Teslimat Süresi</p>
+            <p className="text-sm font-medium text-gray-900">{dealer.averageDeliveryTime.toFixed(1)} gün</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">Memnuniyet</p>
+            <p className="text-sm font-medium text-gray-900">{dealer.customerSatisfaction.toFixed(1)}/5</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderSubDealers = (dealer: DealerPerformance) => {
+    if (!dealer.subDealers || dealer.subDealers.length === 0) return null;
+
+    return (
+      <div className="ml-8 space-y-4 mt-4 border-l-2 border-blue-200 pl-6">
+        <h4 className="text-lg font-semibold text-blue-800 mb-3">Bayiler</h4>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {dealer.subDealers.map(subDealer => renderSubDealerCard(subDealer))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
-      {/* Header Controls */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900">Bayi Performans Takibi</h2>
-        <div className="flex items-center space-x-4">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Bayi, şehir veya bölge ara..."
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-transparent w-56"
-          />
-          <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value as any)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-          >
-            <option value="all">Tüm Bayiler</option>
-            <option value="dealer">Bayiler</option>
-            <option value="main-dealer">Ana Bayiler</option>
-          </select>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-          >
-            <option value="score">Performans Puanı</option>
-            <option value="revenue">Aylık Gelir</option>
-            <option value="deliveryTime">Teslimat Süresi</option>
-          </select>
+      {/* Header and Filters */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">Bayi Performans Takibi</h2>
+            <p className="text-sm text-gray-600">Ana bayiler ve bayileri ayrı ayrı takip edin</p>
+          </div>
+          
+          <div className="flex flex-wrap items-center space-x-3">
+            {/* View Mode Toggle */}
+            <div className="flex bg-gray-100 rounded-lg p-1">
+              {[
+                { id: 'hierarchy', label: 'Hiyerarşi', icon: Building },
+                { id: 'main-dealers', label: 'Ana Bayiler', icon: Crown },
+                { id: 'sub-dealers', label: 'Bayiler', icon: Users }
+              ].map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  onClick={() => setViewMode(id as any)}
+                  className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    viewMode === id
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Search */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Bayi ara..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+
+            {/* Star Filter */}
+            <select
+              value={selectedStarFilter || ''}
+              onChange={(e) => setSelectedStarFilter(e.target.value ? Number(e.target.value) : null)}
+              className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="">Tüm Yıldızlar</option>
+              {[5, 4, 3, 2, 1].map(stars => (
+                <option key={stars} value={stars}>
+                  {stars} Yıldız
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* Performance Summary Cards */}
+      {/* Statistics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-r from-teal-50 to-teal-100 p-4 rounded-lg border border-teal-200">
-          <div className="flex items-center justify-between">
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <div className="flex items-center space-x-2">
+            <Crown className="h-5 w-5 text-blue-600" />
             <div>
-              <p className="text-sm font-medium text-teal-700">Toplam Bayi</p>
-              <p className="text-2xl font-bold text-teal-900">{dealers.length}</p>
+              <p className="text-sm text-gray-600">Ana Bayi</p>
+              <p className="text-lg font-semibold text-gray-900">{mainDealers.length}</p>
             </div>
-            <Award className="h-8 w-8 text-teal-600" />
           </div>
         </div>
         
-        <div className="bg-gradient-to-r from-green-50 to-green-100 p-4 rounded-lg border border-green-200">
-          <div className="flex items-center justify-between">
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <div className="flex items-center space-x-2">
+            <Building className="h-5 w-5 text-gray-600" />
             <div>
-              <p className="text-sm font-medium text-green-700">Yüksek Performans</p>
-              <p className="text-2xl font-bold text-green-900">
-                {dealers.filter(d => d.performanceScore >= 90).length}
-              </p>
+              <p className="text-sm text-gray-600">Bayi</p>
+              <p className="text-lg font-semibold text-gray-900">{allSubDealers.length}</p>
             </div>
-            <CheckCircle className="h-8 w-8 text-green-600" />
           </div>
         </div>
         
-        <div className="bg-gradient-to-r from-yellow-50 to-yellow-100 p-4 rounded-lg border border-yellow-200">
-          <div className="flex items-center justify-between">
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <div className="flex items-center space-x-2">
+            <Star className="h-5 w-5 text-yellow-500" />
             <div>
-              <p className="text-sm font-medium text-yellow-700">Orta Performans</p>
-              <p className="text-2xl font-bold text-yellow-900">
-                {dealers.filter(d => d.performanceScore >= 80 && d.performanceScore < 90).length}
+              <p className="text-sm text-gray-600">5 Yıldızlı</p>
+              <p className="text-lg font-semibold text-gray-900">
+                {mainDealers.filter(d => d.starRating === 5).length + allSubDealers.filter(d => d.starRating === 5).length}
               </p>
             </div>
-            <Clock className="h-8 w-8 text-yellow-600" />
           </div>
         </div>
         
-        <div className="bg-gradient-to-r from-red-50 to-red-100 p-4 rounded-lg border border-red-200">
-          <div className="flex items-center justify-between">
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <div className="flex items-center space-x-2">
+            <TrendingUp className="h-5 w-5 text-green-600" />
             <div>
-              <p className="text-sm font-medium text-red-700">Düşük Performans</p>
-              <p className="text-2xl font-bold text-red-900">
-                {dealers.filter(d => d.performanceScore < 80).length}
+              <p className="text-sm text-gray-600">Ortalama Puan</p>
+              <p className="text-lg font-semibold text-gray-900">
+                {Math.round((mainDealers.reduce((sum, d) => sum + d.performanceScore, 0) + 
+                            allSubDealers.reduce((sum, d) => sum + d.performanceScore, 0)) / 
+                           (mainDealers.length + allSubDealers.length))}
               </p>
             </div>
-            <AlertTriangle className="h-8 w-8 text-red-600" />
           </div>
         </div>
       </div>
 
-      {/* Dealer Columns: left dealers, right main-dealers */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-3">Bayiler</h3>
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            {sortedDealers.filter(d => d.type === 'dealer').map((dealer) => (
-              <div
-                key={dealer.id}
-                className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-all duration-300 cursor-pointer group"
-                onClick={() => onSelectDealer(dealer)}
+      {/* Content based on view mode */}
+      {viewMode === 'hierarchy' && (
+        <div className="space-y-6">
+          {/* Main Dealers with Sorting */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Ana Bayiler</h3>
+              <select
+                value={mainDealerSortBy}
+                onChange={(e) => setMainDealerSortBy(e.target.value as any)}
+                className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
-                {/* Header */}
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-gray-900 truncate">{dealer.name}</h3>
-                    <div className="flex items-center space-x-2 mt-1">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        dealer.type === 'main-dealer' 
-                          ? 'bg-purple-100 text-purple-800' 
-                          : 'bg-blue-100 text-blue-800'
-                      }`}>
-                        {dealer.type === 'main-dealer' ? 'Ana Bayi' : 'Bayi'}
-                      </span>
-                      <span className="text-sm text-gray-600">{dealer.city}</span>
-                    </div>
-                  </div>
-                  <div className={`flex items-center space-x-1 px-2 py-1 rounded-full border ${getPerformanceColor(dealer.performanceScore)}`}>
-                    {getPerformanceIcon(dealer.performanceScore)}
-                    <span className="text-sm font-medium">{dealer.performanceScore}</span>
-                  </div>
+                <option value="score">Puana Göre</option>
+                <option value="revenue">Gelire Göre</option>
+                <option value="orders">Siparişe Göre</option>
+                <option value="satisfaction">Memnuniyete Göre</option>
+              </select>
+            </div>
+            
+            <div className="space-y-4">
+              {mainDealers.map(dealer => (
+                <div key={dealer.id}>
+                  {renderMainDealerCard(dealer)}
+                  {expandedDealers.has(dealer.id) && renderSubDealers(dealer)}
                 </div>
-
-                {/* Metrics */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Toplam Sipariş</span>
-                    <span className="font-medium">{dealer.totalOrders}</span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Tamamlanan</span>
-                    <span className="font-medium text-green-600">{dealer.completedOrders}</span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Ortalama Teslimat</span>
-                    <span className="font-medium">{dealer.averageDeliveryTime} gün</span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Zamanında Teslimat</span>
-                    <span className="font-medium text-blue-600">{dealer.onTimeDeliveryRate}%</span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Aylık Gelir</span>
-                    <span className="font-medium text-teal-600">
-                      {(dealer.monthlyRevenue / 1000).toFixed(0)}K ₺
-                    </span>
-                  </div>
-                </div>
-
-                {/* Customer Satisfaction */}
-                <div className="mt-4 pt-4 border-t border-gray-100">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Müşteri Memnuniyeti</span>
-                    <div className="flex items-center space-x-1">
-                      {[...Array(5)].map((_, i) => (
-                        <Star
-                          key={i}
-                          className={`h-4 w-4 ${
-                            i < Math.floor(dealer.customerSatisfaction)
-                              ? 'text-yellow-400 fill-current'
-                              : 'text-gray-300'
-                          }`}
-                        />
-                      ))}
-                      <span className="text-sm font-medium ml-1">
-                        {dealer.customerSatisfaction.toFixed(1)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Hover Action */}
-                <div className="mt-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors">
-                    <Eye className="h-4 w-4" />
-                    <span>Detayları Görüntüle</span>
-                  </button>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-3">Ana Bayiler</h3>
-          <div className="space-y-6">
-            {sortedDealers.filter(d => d.type === 'main-dealer').map((dealer) => (
-              <div
-                key={dealer.id}
-                className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-all duration-300 cursor-pointer group"
-                onClick={() => onSelectDealer(dealer)}
-              >
-                {/* Header */}
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-gray-900 truncate">{dealer.name}</h3>
-                    <div className="flex items-center space-x-2 mt-1">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        dealer.type === 'main-dealer' 
-                          ? 'bg-purple-100 text-purple-800' 
-                          : 'bg-blue-100 text-blue-800'
-                      }`}>
-                        {dealer.type === 'main-dealer' ? 'Ana Bayi' : 'Bayi'}
-                      </span>
-                      <span className="text-sm text-gray-600">{dealer.city}</span>
-                    </div>
-                  </div>
-                  <div className={`flex items-center space-x-1 px-2 py-1 rounded-full border ${getPerformanceColor(dealer.performanceScore)}`}>
-                    {getPerformanceIcon(dealer.performanceScore)}
-                    <span className="text-sm font-medium">{dealer.performanceScore}</span>
-                  </div>
-                </div>
+      )}
 
-                {/* Metrics */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Toplam Sipariş</span>
-                    <span className="font-medium">{dealer.totalOrders}</span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Tamamlanan</span>
-                    <span className="font-medium text-green-600">{dealer.completedOrders}</span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Ortalama Teslimat</span>
-                    <span className="font-medium">{dealer.averageDeliveryTime} gün</span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Zamanında Teslimat</span>
-                    <span className="font-medium text-blue-600">{dealer.onTimeDeliveryRate}%</span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Aylık Gelir</span>
-                    <span className="font-medium text-teal-600">
-                      {(dealer.monthlyRevenue / 1000).toFixed(0)}K ₺
-                    </span>
-                  </div>
-                </div>
-
-                {/* Customer Satisfaction */}
-                <div className="mt-4 pt-4 border-t border-gray-100">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Müşteri Memnuniyeti</span>
-                    <div className="flex items-center space-x-1">
-                      {[...Array(5)].map((_, i) => (
-                        <Star
-                          key={i}
-                          className={`h-4 w-4 ${
-                            i < Math.floor(dealer.customerSatisfaction)
-                              ? 'text-yellow-400 fill-current'
-                              : 'text-gray-300'
-                          }`}
-                        />
-                      ))}
-                      <span className="text-sm font-medium ml-1">
-                        {dealer.customerSatisfaction.toFixed(1)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Hover Action */}
-                <div className="mt-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors">
-                    <Eye className="h-4 w-4" />
-                    <span>Detayları Görüntüle</span>
-                  </button>
-                </div>
-              </div>
-            ))}
+      {viewMode === 'main-dealers' && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-lg font-semibold text-gray-900">Ana Bayiler</h3>
+            <select
+              value={mainDealerSortBy}
+              onChange={(e) => setMainDealerSortBy(e.target.value as any)}
+              className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="score">Puana Göre</option>
+              <option value="revenue">Gelire Göre</option>
+              <option value="orders">Siparişe Göre</option>
+              <option value="satisfaction">Memnuniyete Göre</option>
+            </select>
+          </div>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {mainDealers.map(dealer => renderMainDealerCard(dealer))}
           </div>
         </div>
-      </div>
+      )}
+
+      {viewMode === 'sub-dealers' && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-lg font-semibold text-gray-900">Bayiler</h3>
+            <select
+              value={subDealerSortBy}
+              onChange={(e) => setSubDealerSortBy(e.target.value as any)}
+              className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="score">Puana Göre</option>
+              <option value="revenue">Gelire Göre</option>
+              <option value="orders">Siparişe Göre</option>
+              <option value="satisfaction">Memnuniyete Göre</option>
+            </select>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {allSubDealers.map(dealer => renderSubDealerCard(dealer))}
+          </div>
+        </div>
+      )}
+      
+      {mainDealers.length === 0 && allSubDealers.length === 0 && (
+        <div className="text-center py-8">
+          <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+          <p className="text-gray-500">Arama kriterlerinize uygun bayi bulunamadı.</p>
+        </div>
+      )}
+
+      {/* Dealer Detail Modal */}
+      {selectedDealer && (
+        <DealerDetailModal
+          dealer={selectedDealer}
+          isOpen={isModalOpen}
+          onClose={() => {
+            setIsModalOpen(false);
+            setSelectedDealer(null);
+          }}
+          scoreBreakdown={{
+            orderApprovalScore: selectedDealer.orderApprovalScore,
+            deliveryScore: selectedDealer.deliveryScore,
+            satisfactionScore: selectedDealer.satisfactionScore,
+            completionScore: selectedDealer.completionScore
+          }}
+        />
+      )}
     </div>
   );
 };

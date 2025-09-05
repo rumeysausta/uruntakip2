@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Search, Filter, Calendar, Package, User, MapPin, X } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, Filter, Calendar, Package, User, MapPin, X, Clock, Zap } from 'lucide-react';
 import { SearchFilters, Order } from '../types';
+import { SearchEngine, SearchHistory } from '../utils/searchEngine';
 
 interface AdvancedSearchProps {
   orders: Order[];
@@ -11,56 +12,62 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({ orders, onSearchResults
   const [filters, setFilters] = useState<SearchFilters>({});
   const [isExpanded, setIsExpanded] = useState(false);
   const [searchResults, setSearchResults] = useState<Order[]>([]);
+  const [quickSearch, setQuickSearch] = useState('');
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const handleSearch = () => {
-    let results = [...orders];
+  // Auto-complete functionality
+  useEffect(() => {
+    if (quickSearch.length > 1) {
+      const newSuggestions = SearchEngine.getAutoCompleteSuggestions(orders, quickSearch, 8);
+      setSuggestions(newSuggestions);
+      setShowSuggestions(newSuggestions.length > 0);
+    } else {
+      setSuggestions([]);
+      setShowSuggestions(false);
+    }
+  }, [quickSearch, orders]);
 
-    // Apply filters
-    if (filters.orderId) {
-      results = results.filter(order => 
-        order.id.toLowerCase().includes(filters.orderId!.toLowerCase())
-      );
+  const handleQuickSearch = () => {
+    if (!quickSearch.trim()) {
+      setSearchResults([]);
+      onSearchResults(orders);
+      return;
     }
 
-    if (filters.customerName) {
-      results = results.filter(order => 
-        order.customerName.toLowerCase().includes(filters.customerName!.toLowerCase())
-      );
-    }
+    // Use advanced search engine
+    const searchResults = SearchEngine.searchOrders(orders, quickSearch, {
+      fuzzyThreshold: 0.5,
+      maxResults: 100,
+      sortByRelevance: true
+    });
 
-    if (filters.productName) {
-      results = results.filter(order => 
-        order.items.some(item => 
-          item.productName.toLowerCase().includes(filters.productName!.toLowerCase())
-        )
-      );
-    }
-
-    if (filters.dealerName) {
-      results = results.filter(order => 
-        order.dealer.toLowerCase().includes(filters.dealerName!.toLowerCase()) ||
-        order.mainDealer.toLowerCase().includes(filters.dealerName!.toLowerCase())
-      );
-    }
-
-    if (filters.status) {
-      results = results.filter(order => order.status === filters.status);
-    }
-
-    if (filters.dateFrom) {
-      results = results.filter(order => 
-        new Date(order.orderDate) >= new Date(filters.dateFrom!)
-      );
-    }
-
-    if (filters.dateTo) {
-      results = results.filter(order => 
-        new Date(order.orderDate) <= new Date(filters.dateTo!)
-      );
-    }
-
+    const results = searchResults.map(r => r.order);
     setSearchResults(results);
     onSearchResults(results);
+    
+    // Add to search history
+    SearchHistory.addToHistory(quickSearch);
+    setShowSuggestions(false);
+  };
+
+  const handleSearch = () => {
+    // Combine quick search with filters
+    const combinedResults = SearchEngine.combineFilters(orders, {
+      query: quickSearch,
+      status: filters.status,
+      dateFrom: filters.dateFrom,
+      dateTo: filters.dateTo,
+      dealer: filters.dealerName
+    });
+
+    setSearchResults(combinedResults);
+    onSearchResults(combinedResults);
+    
+    if (quickSearch.trim()) {
+      SearchHistory.addToHistory(quickSearch);
+    }
   };
 
   const clearFilters = () => {
@@ -102,20 +109,54 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({ orders, onSearchResults
 
       {/* Quick Search */}
       <div className="flex space-x-4">
-        <div className="flex-1">
+        <div className="flex-1 relative">
           <input
+            ref={searchInputRef}
             type="text"
-            placeholder="Sipariş ID, müşteri adı veya ürün ara..."
-            value={filters.orderId || ''}
-            onChange={(e) => updateFilter('orderId', e.target.value)}
+            placeholder="Bayi adı, sipariş ID, müşteri adı veya ürün ara..."
+            value={quickSearch}
+            onChange={(e) => setQuickSearch(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleQuickSearch()}
+            onFocus={() => quickSearch.length > 1 && setShowSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
           />
+          
+          {/* Auto-complete suggestions */}
+          {showSuggestions && suggestions.length > 0 && (
+            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+              {suggestions.map((suggestion, index) => (
+                <button
+                  key={index}
+                  onClick={() => {
+                    setQuickSearch(suggestion);
+                    setShowSuggestions(false);
+                    setTimeout(() => handleQuickSearch(), 100);
+                  }}
+                  className="w-full px-4 py-2 text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
+                >
+                  <div className="flex items-center space-x-2">
+                    <Clock className="h-4 w-4 text-gray-400" />
+                    <span className="text-sm">{suggestion}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <button
-          onClick={handleSearch}
-          className="px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
+          onClick={handleQuickSearch}
+          className="px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors flex items-center space-x-2"
         >
-          Ara
+          <Zap className="h-4 w-4" />
+          <span>Hızlı Ara</span>
+        </button>
+        <button
+          onClick={handleSearch}
+          className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center space-x-2"
+        >
+          <Filter className="h-4 w-4" />
+          <span>Filtreli Ara</span>
         </button>
         {activeFiltersCount > 0 && (
           <button

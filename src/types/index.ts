@@ -77,6 +77,7 @@ export interface DealerPerformance {
   customerSatisfaction: number; // 1-5 scale
   monthlyRevenue: number;
   performanceScore: number; // calculated score
+  starRating: number; // 1-5 stars
   lastOrderDate: string;
   contactInfo: {
     phone: string;
@@ -84,6 +85,60 @@ export interface DealerPerformance {
     address: string;
   };
   recentOrders: Order[];
+  // New fields for hierarchy
+  parentDealerId?: string; // for sub-dealers
+  subDealers?: DealerPerformance[]; // for main dealers
+  // New scoring fields
+  orderApprovalScore: number;
+  deliveryScore: number;
+  satisfactionScore: number;
+  completionScore: number;
+}
+
+// New interfaces for scoring system
+export interface ScoringCriteria {
+  orderApproval: {
+    day1: number;
+    day2: number;
+    day3: number;
+    day4: number;
+    day5Plus: number;
+  };
+  delivery: {
+    day1to2: number;
+    day3to4: number;
+    day5to7: number;
+    day8to10: number;
+    day10Plus: number;
+  };
+  satisfaction: {
+    star5: number;
+    star4: number;
+    star3: number;
+    star2: number;
+    star1: number;
+  };
+  completion: {
+    percent95to100: number;
+    percent90to94: number;
+    percent85to89: number;
+    percent80to84: number;
+    percentUnder80: number;
+  };
+}
+
+export interface ScoringWeights {
+  orderApproval: number;
+  delivery: number;
+  satisfaction: number;
+  completion: number;
+}
+
+export interface StarRating {
+  minScore: number;
+  maxScore: number;
+  stars: number;
+  label: string;
 }
 
 export interface SearchFilters {

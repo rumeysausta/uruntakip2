@@ -10,13 +10,14 @@ import DealerTracking from './DealerTracking';
 import DealerDetailModal from './DealerDetailModal';
 import AdvancedSearch from './AdvancedSearch';
 import ReportingSystem from './ReportingSystem';
-import { mockOrders, mockStockItems, mockSalesData, mockProductPerformance, mockCampaignData, mockDealerPerformance, mockReports } from '../data/mockData';
+import ScoringSettings from './ScoringSettings';
+import { mockOrders, mockStockItems, mockSalesData, mockProductPerformance, mockCampaignData, mockDealerPerformance, mockReports, defaultScoringCriteria, defaultScoringWeights, starRatingSystem } from '../data/mockData';
 import { DealerPerformance, Order } from '../types';
 
 const Dashboard: React.FC = () => {
   const [dateRange, setDateRange] = useState('7days');
   const [selectedOrder, setSelectedOrder] = useState(mockOrders[0]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'dealers' | 'reports'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'dealers' | 'reports' | 'search' | 'scoring'>('dashboard');
   const [selectedDealer, setSelectedDealer] = useState<DealerPerformance | null>(null);
   const [isDealerModalOpen, setIsDealerModalOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<Order[]>(mockOrders);
@@ -30,6 +31,10 @@ const Dashboard: React.FC = () => {
   const [selectedDealerBreakdown, setSelectedDealerBreakdown] = useState<{
     [k: string]: number;
   } | null>(null);
+  
+  // Puanlandırma sistemi state'leri
+  const [scoringCriteria, setScoringCriteria] = useState(defaultScoringCriteria);
+  const [scoringWeights, setScoringWeights] = useState(defaultScoringWeights);
 
   const totalOrders = mockOrders.length;
   const completedOrders = mockOrders.filter(order => order.status === 'completed').length;
@@ -50,6 +55,11 @@ const Dashboard: React.FC = () => {
 
   const handleSearchResults = (results: Order[]) => {
     setSearchResults(results);
+  };
+
+  const handleScoringUpdate = (newCriteria: typeof scoringCriteria, newWeights: typeof scoringWeights) => {
+    setScoringCriteria(newCriteria);
+    setScoringWeights(newWeights);
   };
 
   const computeDealerScore = (
@@ -96,16 +106,16 @@ const Dashboard: React.FC = () => {
   }, [scoreWeights]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-teal-50 via-cyan-50 to-emerald-100">
       {/* Header */}
-      <div className="bg-white shadow-sm border-b border-gray-200">
+      <div className="bg-white/80 backdrop-blur-md shadow-lg border-b border-gray-200/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-20">
             <div className="flex items-center space-x-4">
-              <div className="bg-teal-600 text-white px-4 py-2 rounded font-bold text-lg">
-                BELLONA
-              </div>
-              <h1 className="text-2xl font-bold text-gray-900">Bellona E-Ticaret Dashboard</h1>
+              <img src="/image.png?v=1" alt="Bellona" className="h-10 w-auto object-contain" />
+              <h1 className="text-2xl font-bold bg-gradient-to-r from-teal-800 to-teal-600 bg-clip-text text-transparent">
+                Bellona E-Ticaret Dashboard
+              </h1>
             </div>
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
@@ -113,14 +123,14 @@ const Dashboard: React.FC = () => {
                 <select
                   value={dateRange}
                   onChange={(e) => setDateRange(e.target.value)}
-                  className="text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="text-sm border border-gray-300/50 rounded-lg px-4 py-2 bg-white/70 backdrop-blur-sm focus:ring-2 focus:ring-teal-500 focus:border-transparent shadow-sm"
                 >
                   <option value="7days">Son 7 Gün</option>
                   <option value="30days">Son 30 Gün</option>
                   <option value="90days">Son 3 Ay</option>
                 </select>
               </div>
-              <button className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+              <button className="flex items-center space-x-2 px-6 py-2 bg-gradient-to-r from-teal-600 to-teal-700 text-white rounded-lg hover:from-teal-700 hover:to-teal-800 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105">
                 <Filter className="h-4 w-4" />
                 <span>Filtrele</span>
               </button>
@@ -130,21 +140,22 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Navigation Tabs */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-white/90 backdrop-blur-md border-b border-gray-200/50 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="flex space-x-8">
             {[
               { id: 'dashboard', label: 'Ana Dashboard', icon: Package },
               { id: 'dealers', label: 'Bayi Takibi', icon: Users },
+              { id: 'scoring', label: 'Puanlandırma Ayarları', icon: TrendingUp },
               { id: 'reports', label: 'Raporlar', icon: BarChart3 }
             ].map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 onClick={() => setActiveTab(id as any)}
-                className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                className={`flex items-center space-x-2 py-4 px-3 border-b-2 font-medium text-sm transition-all duration-200 rounded-t-lg ${
                   activeTab === id
-                    ? 'border-teal-500 text-teal-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    ? 'border-gradient-to-r from-teal-500 to-blue-500 text-teal-600 bg-gradient-to-t from-teal-50/50 to-transparent shadow-sm'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50/50'
                 }`}
               >
                 <Icon className="h-4 w-4" />
@@ -168,64 +179,64 @@ const Dashboard: React.FC = () => {
             </div>
             {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="bg-white/80 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-gray-200/50 hover:shadow-xl transition-all duration-300 transform hover:scale-105">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Toplam Sipariş</p>
-                <p className="text-3xl font-bold text-gray-900">{totalOrders}</p>
+                <p className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">{totalOrders}</p>
               </div>
-              <div className="h-12 w-12 bg-teal-100 rounded-lg flex items-center justify-center">
+              <div className="h-12 w-12 bg-gradient-to-br from-teal-100 to-teal-200 rounded-xl flex items-center justify-center shadow-md">
                 <Package className="h-6 w-6 text-teal-600" />
               </div>
             </div>
             <div className="mt-4 flex items-center text-sm">
-              <span className="text-green-600 font-medium">Tamamlanan: {completedOrders}</span>
-              <span className="text-yellow-600 font-medium ml-4">İşlemde: {inProgressOrders}</span>
+              <span className="text-green-600 font-medium bg-green-50 px-2 py-1 rounded-md">Tamamlanan: {completedOrders}</span>
+              <span className="text-yellow-600 font-medium ml-2 bg-yellow-50 px-2 py-1 rounded-md">İşlemde: {inProgressOrders}</span>
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="bg-white/80 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-gray-200/50 hover:shadow-xl transition-all duration-300 transform hover:scale-105">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Toplam Gelir</p>
-                <p className="text-3xl font-bold text-gray-900">{(totalRevenue / 1000000).toFixed(1)}M ₺</p>
+                <p className="text-3xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">{(totalRevenue / 1000000).toFixed(1)}M ₺</p>
               </div>
-              <div className="h-12 w-12 bg-green-100 rounded-lg flex items-center justify-center">
+              <div className="h-12 w-12 bg-gradient-to-br from-green-100 to-emerald-200 rounded-xl flex items-center justify-center shadow-md">
                 <TrendingUp className="h-6 w-6 text-green-600" />
               </div>
             </div>
             <div className="mt-4 flex items-center text-sm">
-              <span className="text-green-600 font-medium">Ortalama Sipariş: {(averageOrderValue / 1000).toFixed(0)}K ₺</span>
+              <span className="text-green-600 font-medium bg-green-50 px-3 py-1 rounded-lg">Ortalama Sipariş: {(averageOrderValue / 1000).toFixed(0)}K ₺</span>
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="bg-white/80 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-gray-200/50 hover:shadow-xl transition-all duration-300 transform hover:scale-105">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Aktif Müşteri</p>
-                <p className="text-3xl font-bold text-gray-900">{mockOrders.length * 15}</p>
+                <p className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">{mockOrders.length * 15}</p>
               </div>
-              <div className="h-12 w-12 bg-purple-100 rounded-lg flex items-center justify-center">
+              <div className="h-12 w-12 bg-gradient-to-br from-purple-100 to-indigo-200 rounded-xl flex items-center justify-center shadow-md">
                 <Users className="h-6 w-6 text-purple-600" />
               </div>
             </div>
             <div className="mt-4 flex items-center text-sm">
-              <span className="text-purple-600 font-medium">Bu ay: +12%</span>
+              <span className="text-purple-600 font-medium bg-purple-50 px-3 py-1 rounded-lg">Bu ay: +12%</span>
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="bg-white/80 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-gray-200/50 hover:shadow-xl transition-all duration-300 transform hover:scale-105">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Kritik Stok</p>
-                <p className="text-3xl font-bold text-gray-900">{criticalStockItems}</p>
+                <p className="text-3xl font-bold bg-gradient-to-r from-red-600 to-orange-600 bg-clip-text text-transparent">{criticalStockItems}</p>
               </div>
-              <div className="h-12 w-12 bg-red-100 rounded-lg flex items-center justify-center">
+              <div className="h-12 w-12 bg-gradient-to-br from-red-100 to-orange-200 rounded-xl flex items-center justify-center shadow-md">
                 <AlertTriangle className="h-6 w-6 text-red-600" />
               </div>
             </div>
             <div className="mt-4 flex items-center text-sm">
-              <span className="text-red-600 font-medium">Acil müdahale gerekli</span>
+              <span className="text-red-600 font-medium bg-red-50 px-3 py-1 rounded-lg animate-pulse">Acil müdahale gerekli</span>
             </div>
           </div>
         </div>
@@ -234,26 +245,26 @@ const Dashboard: React.FC = () => {
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
           {/* Left Column - Order Flow */}
           <div className="xl:col-span-2 space-y-8">
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900 mb-6">Sipariş Akış Takibi</h2>
+            <div className="bg-white/80 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-gray-200/50 hover:shadow-xl transition-all duration-300">
+              <h2 className="text-xl font-semibold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent mb-6">Sipariş Akış Takibi</h2>
               <OrderFlowVisualization order={selectedOrder} />
             </div>
 
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900 mb-6">Satış Performansı</h2>
+            <div className="bg-white/80 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-gray-200/50 hover:shadow-xl transition-all duration-300">
+              <h2 className="text-xl font-semibold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent mb-6">Satış Performansı</h2>
               <SalesChart data={mockSalesData} />
             </div>
 
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900 mb-6">Ürün Performansı</h2>
+            <div className="bg-white/80 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-gray-200/50 hover:shadow-xl transition-all duration-300">
+              <h2 className="text-xl font-semibold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent mb-6">Ürün Performansı</h2>
               <ProductPerformanceChart data={mockProductPerformance} />
             </div>
           </div>
 
           {/* Right Column - Side Panels */}
           <div className="space-y-8">
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900 mb-6">Siparişler</h2>
+            <div className="bg-white/80 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-gray-200/50 hover:shadow-xl transition-all duration-300">
+              <h2 className="text-xl font-semibold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent mb-6">Siparişler</h2>
               <OrderList 
                 orders={mockOrders} 
                 selectedOrder={selectedOrder}
@@ -261,13 +272,13 @@ const Dashboard: React.FC = () => {
               />
             </div>
 
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900 mb-6">Stok Durumu</h2>
+            <div className="bg-white/80 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-gray-200/50 hover:shadow-xl transition-all duration-300">
+              <h2 className="text-xl font-semibold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent mb-6">Stok Durumu</h2>
               <StockOverview items={mockStockItems} />
             </div>
 
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900 mb-6">Kampanya Performansı</h2>
+            <div className="bg-white/80 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-gray-200/50 hover:shadow-xl transition-all duration-300">
+              <h2 className="text-xl font-semibold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent mb-6">Kampanya Performansı</h2>
               <CampaignPerformance data={mockCampaignData} />
             </div>
           </div>
@@ -276,50 +287,28 @@ const Dashboard: React.FC = () => {
         )}
 
         {activeTab === 'dealers' && (
-          <div className="space-y-6">
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Bayi Puanlandırma Ağırlıkları</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {([
-                  { key: 'onTimeDeliveryRate', label: 'Zamanında Teslimat (%)' },
-                  { key: 'averageDeliveryTime', label: 'Teslimat Süresi (gün)' },
-                  { key: 'customerSatisfaction', label: 'Müşteri Memnuniyeti' },
-                  { key: 'monthlyRevenue', label: 'Aylık Gelir' },
-                  { key: 'completionRate', label: 'Tamamlama Oranı' }
-                ] as const).map(({ key, label }) => (
-                  <div key={key} className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-700">{label}</span>
-                      <span className="font-medium text-gray-900">{scoreWeights[key]}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={60}
-                      step={1}
-                      value={scoreWeights[key]}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        setScoreWeights(prev => ({ ...prev, [key]: val }));
-                      }}
-                      className="w-full"
-                    />
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs text-gray-500 mt-3">Ağırlıklar göreceli olarak normalize edilir ve toplamlarının 100 olmasına gerek yoktur.</p>
-            </div>
-            <DealerTracking 
-              dealers={recomputedDealers} 
-              onSelectDealer={handleSelectDealer}
-            />
-          </div>
+          <DealerTracking 
+            dealers={recomputedDealers} 
+            criteria={scoringCriteria}
+            weights={scoringWeights}
+            starSystem={starRatingSystem}
+            onSelectDealer={handleSelectDealer}
+          />
         )}
 
         {activeTab === 'search' && (
           <AdvancedSearch 
             orders={mockOrders}
             onSearchResults={handleSearchResults}
+          />
+        )}
+
+        {activeTab === 'scoring' && (
+          <ScoringSettings
+            criteria={scoringCriteria}
+            weights={scoringWeights}
+            onSave={handleScoringUpdate}
+            isAuthorized={true}
           />
         )}
 
